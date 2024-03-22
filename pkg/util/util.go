@@ -55,6 +55,7 @@ const (
 	// IngressProtocolAnntoation - HTTP only for now
 	// HTTP, HTTP2 - accepted.
 	IngressProtocolAnnotation = "oci-native-ingress.oraclecloud.com/protocol"
+	IngressListenerPortAnnotation = "oci-native-ingress.oraclecloud.com/listener-port"
 
 	IngressPolicyAnnotation          = "oci-native-ingress.oraclecloud.com/policy"
 	IngressClassWafPolicyAnnotation  = "oci-native-ingress.oraclecloud.com/waf-policy-ocid"
@@ -146,6 +147,21 @@ func GetIngressProtocol(i *networkingv1.Ingress) string {
 		return ProtocolHTTP
 	}
 	return strings.ToUpper(protocol)
+}
+
+func GetIngressListenerPort(i *networkingv1.Ingress) (int32, error) {
+	port, ok := i.Annotations[IngressListenerPortAnnotation]
+	if !ok {
+		return 0, nil
+	}
+	
+	listenerPort, err := strconv.ParseInt(port, 10, 32)
+	if err != nil {
+		return 0, err
+	}
+	result := int32(listenerPort)
+
+	return result, nil
 }
 
 func GetIngressClassLoadBalancerId(ic *networkingv1.IngressClass) string {

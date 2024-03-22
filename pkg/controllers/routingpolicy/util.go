@@ -80,8 +80,18 @@ func processRoutingPolicy(ingresses []*networkingv1.Ingress, serviceLister corel
 				if err != nil {
 					return err
 				}
+				annotatedListenerPort, err := util.GetIngressListenerPort(ingress)
+				 if err != nil {
+					 return err
+				 }
+				var listenerName string
+				if annotatedListenerPort != 0 {
+					listenerName = util.GenerateListenerName(annotatedListenerPort)
+				} else {
+					listenerName = util.GenerateListenerName(servicePort)
+				}
+
 				rulePath := path
-				listenerName := util.GenerateListenerName(servicePort)
 				listenerPaths[listenerName] = append(listenerPaths[listenerName], &listenerPath{
 					IngressName:    ingress.Name,
 					Host:           rule.Host,
