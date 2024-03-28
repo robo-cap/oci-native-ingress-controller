@@ -12,6 +12,7 @@ package routingpolicy
 import (
 	"fmt"
 	"strings"
+	"encoding/json"
 
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -24,6 +25,11 @@ type listenerPath struct {
 	Host           string
 	BackendSetName string
 	Path           *networkingv1.HTTPIngressPath
+}
+
+type AnnotatedListeners struct {
+	PortHTTP      int32    `json:"HTTP_PORT"`
+	PortHTTPS     int32    `json:"HTTPS_PORT"`
 }
 
 type ByPath []*listenerPath
@@ -74,31 +80,50 @@ func PathToRoutePolicyCondition(host string, path networkingv1.HTTPIngressPath) 
 
 func processRoutingPolicy(ingresses []*networkingv1.Ingress, serviceLister corelisters.ServiceLister, listenerPaths map[string][]*listenerPath, desiredRoutingPolicies sets.String) error {
 	for _, ingress := range ingresses {
+		var annotatedListener AnnotatedListeners
+		json.Unmarshal([]byte(util.GetIngressListenerPort(ingress)), &annotatedListener)		
 		for _, rule := range ingress.Spec.Rules {
 			for _, path := range rule.HTTP.Paths {
 				serviceName, servicePort, err := util.PathToServiceAndPort(ingress.Namespace, path, serviceLister)
 				if err != nil {
 					return err
 				}
-				annotatedListenerPort, err := util.GetIngressListenerPort(ingress)
-				 if err != nil {
-					 return err
-				 }
-				var listenerName string
-				if annotatedListenerPort != 0 {
-					listenerName = util.GenerateListenerName(annotatedListenerPort)
-				} else {
-					listenerName = util.GenerateListenerName(servicePort)
-				}
 
-				rulePath := path
-				listenerPaths[listenerName] = append(listenerPaths[listenerName], &listenerPath{
-					IngressName:    ingress.Name,
-					Host:           rule.Host,
-					Path:           &rulePath,
-					BackendSetName: util.GenerateBackendSetName(ingress.Namespace, serviceName, servicePort),
-				})
-				desiredRoutingPolicies.Insert(listenerName)
+				if annotatedListener.PortHTTP != 0 {
+					listenerName := util.GenerateListenerName(annotatedListener.PortHTTP)
+					rulePath := path
+					listenerPaths[listenerName] = append(listenerPaths[listenerName], &listenerPath{
+						IngressName:    ingress.Name,
+						Host:           rule.Host,
+						Path:           &rulePath,
+						BackendSetName: util.GenerateBackendSetName(ingress.Namespace, serviceName, servicePort),
+					})
+					desiredRoutingPolicies.Insert(listenerName)
+				}
+				
+				if annotatedListener.PortHTTPS != 0 {
+					listenerName := util.GenerateListenerName(annotatedListener.PortHTTPS)
+					rulePath := path
+					listenerPaths[listenerName] = append(listenerPaths[listenerName], &listenerPath{
+						IngressName:    ingress.Name,
+						Host:           rule.Host,
+						Path:           &rulePath,
+						BackendSetName: util.GenerateBackendSetName(ingress.Namespace, serviceName, servicePort),
+					})
+					desiredRoutingPolicies.Insert(listenerName)
+				}
+				
+				if annotatedListener.PortHTTP == 0 && annotatedListener.PortHTTPS == 0 {
+					listenerName := util.GenerateListenerName(servicePort)
+					rulePath := path
+					listenerPaths[listenerName] = append(listenerPaths[listenerName], &listenerPath{
+						IngressName:    ingress.Name,
+						Host:           rule.Host,
+						Path:           &rulePath,
+						BackendSetName: util.GenerateBackendSetName(ingress.Namespace, serviceName, servicePort),
+					})
+					desiredRoutingPolicies.Insert(listenerName)
+				}
 			}
 		}
 	}

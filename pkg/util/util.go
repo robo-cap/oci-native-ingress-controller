@@ -149,19 +149,25 @@ func GetIngressProtocol(i *networkingv1.Ingress) string {
 	return strings.ToUpper(protocol)
 }
 
-func GetIngressListenerPort(i *networkingv1.Ingress) (int32, error) {
-	port, ok := i.Annotations[IngressListenerPortAnnotation]
+func GetIngressListenerPort(i *networkingv1.Ingress) string {
+	value, ok := i.Annotations[IngressListenerPortAnnotation]
 	if !ok {
-		return 0, nil
+		return ""
 	}
-	
-	listenerPort, err := strconv.ParseInt(port, 10, 32)
-	if err != nil {
-		return 0, err
-	}
-	result := int32(listenerPort)
 
-	return result, nil
+	return strings.ToUpper(value)
+	// port, ok := i.Annotations[IngressListenerPortAnnotation]
+	// if !ok {
+	// 	return 0, nil
+	// }
+	
+	// listenerPort, err := strconv.ParseInt(port, 10, 32)
+	// if err != nil {
+	// 	return 0, err
+	// }
+	// result := int32(listenerPort)
+
+	// return result, nil
 }
 
 func GetIngressClassLoadBalancerId(ic *networkingv1.IngressClass) string {

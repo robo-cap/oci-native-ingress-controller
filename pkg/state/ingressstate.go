@@ -12,6 +12,7 @@ package state
 import (
 	"fmt"
 	"reflect"
+	"encoding/json"
 
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
@@ -39,6 +40,11 @@ const (
 type TlsConfig struct {
 	Artifact string
 	Type     string
+}
+
+type AnnotatedListeners struct {
+	PortHTTP      int32    `json:"HTTP_PORT"`
+	PortHTTPS     int32    `json:"HTTPS_PORT"`
 }
 
 type StateStore struct {
@@ -110,7 +116,7 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 	bsPolicyMap[DefaultIngressName] = util.DefaultBackendSetRoutingPolicy
 
 	for _, ing := range ingressGroup {
-		var listenerPort int32
+		var annotatedListener AnnotatedListeners
 		hostSecretMap := make(map[string]string)
 		desiredPorts := sets.NewInt32()
 		// we always expect the default_ingress backendset
@@ -124,13 +130,17 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 			}
 		}
 
-		annotatedListenerPort, err := util.GetIngressListenerPort(ing)
-		if err != nil {
-			return err
+        json.Unmarshal([]byte(util.GetIngressListenerPort(ing)), &annotatedListener)
+
+		
+		if annotatedListener.PortHTTP != 0 {
+			allListeners.Insert(annotatedListener.PortHTTP)
+			desiredPorts.Insert(annotatedListener.PortHTTP)
 		}
-		if annotatedListenerPort != 0 {
-			listenerPort = annotatedListenerPort
-			allListeners.Insert(listenerPort)
+
+		if annotatedListener.PortHTTPS != 0 {
+			allListeners.Insert(annotatedListener.PortHTTPS)
+			desiredPorts.Insert(annotatedListener.PortHTTPS)
 		}
 
 		for _, rule := range ing.Spec.Rules {
@@ -140,19 +150,24 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 					return errors.Wrap(err, "error finding service and port")
 				}
 
-				if annotatedListenerPort == 0 {
-					listenerPort = servicePort
-					allListeners.Insert(listenerPort)
+				if annotatedListener.PortHTTP == 0 && annotatedListener.PortHTTPS == 0 {
+					allListeners.Insert(servicePort)
 				}
-
-				desiredPorts.Insert(listenerPort)
+				
+				if annotatedListener.PortHTTP == 0 && annotatedListener.PortHTTPS == 0 {
+					desiredPorts.Insert(servicePort)
+				}
+				
 				bsName := util.GenerateBackendSetName(ing.Namespace, serviceName, servicePort)
 				desiredBackendSets.Insert(bsName)
 				allBackendSets.Insert(bsName)
-
-				err = validateListenerProtocol(ing, listenerProtocolMap, listenerPort)
-				if err != nil {
-					return err
+				
+				desiredPortsList := desiredPorts.List()
+				for _, listenerPort := range desiredPortsList {
+					err = validateListenerProtocol(ing, listenerProtocolMap, listenerPort)
+					if err != nil {
+						return err
+					}
 				}
 
 				err = validateBackendSetHealthChecker(ing, bsHealthCheckerMap, bsName)
@@ -164,9 +179,18 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 				if err != nil {
 					return err
 				}
+				
 				bsTLSEnabled := util.GetBackendTlsEnabled(ing)
 				certificateId := util.GetListenerTlsCertificateOcid(ing)
+					
 				if certificateId != nil {
+					var listenerPort int32
+					if annotatedListener.PortHTTPS != 0 {
+						listenerPort = annotatedListener.PortHTTPS
+					} else {
+						listenerPort = servicePort
+					}
+
 					tlsPortDetail, ok := listenerTLSConfigMap[listenerPort]
 					if ok {
 						err = validatePortInUse(tlsPortDetail, "", certificateId, listenerPort)
@@ -186,6 +210,13 @@ func (s *StateStore) BuildState(ingressClass *networkingv1.IngressClass) error {
 					secretName, ok := hostSecretMap[rule.Host]
 
 					if ok && secretName != "" {
+						var listenerPort int32
+						if annotatedListener.PortHTTPS != 0 {
+							listenerPort = annotatedListener.PortHTTPS
+						} else {
+							listenerPort = servicePort
+						}
+						
 						tlsPortDetail, ok := listenerTLSConfigMap[listenerPort]
 						if ok {
 							err = validatePortInUse(tlsPortDetail, secretName, nil, listenerPort)
