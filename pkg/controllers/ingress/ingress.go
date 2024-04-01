@@ -27,6 +27,8 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/state"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 
+	"github.com/oracle/oci-go-sdk/v65/containerengine"
+
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -50,6 +52,7 @@ var errIngressClassNotReady = errors.New("ingress class not ready")
 type Controller struct {
 	controllerClass      string
 	defaultCompartmentId string
+	cniType              string
 
 	ingressClassLister networkinglisters.IngressClassLister
 	ingressLister      networkinglisters.IngressLister
@@ -61,7 +64,7 @@ type Controller struct {
 }
 
 // NewController creates a new Controller.
-func NewController(controllerClass string, defaultCompartmentId string,
+func NewController(controllerClass string, defaultCompartmentId string, cniType string,
 	ingressClassInformer networkinginformers.IngressClassInformer, ingressInformer networkinginformers.IngressInformer,
 	serviceLister corelisters.ServiceLister,
 	client *client.ClientProvider,
@@ -70,6 +73,7 @@ func NewController(controllerClass string, defaultCompartmentId string,
 	c := &Controller{
 		controllerClass:      controllerClass,
 		defaultCompartmentId: defaultCompartmentId,
+		cniType:              cniType,
 		ingressClassLister:   ingressClassInformer.Lister(),
 		ingressLister:        ingressInformer.Lister(),
 		informer:             ingressInformer,
@@ -542,6 +546,18 @@ func syncBackendSet(ingress *networkingv1.Ingress, lbID string, backendSetName s
 	}
 
 	healthChecker := stateStore.GetBackendSetHealthChecker(*bs.Name)
+
+	if util.UseSvcTrafficPortForHealthCheck(ingress) {
+		if c.cniType == string(containerengine.ClusterPodNetworkOptionDetailsCniTypeOciVcnIpNative) {
+			desiredPort := util.GetTargetPortForBackendNPN(c.serviceLister, ingress, backendSetName)
+			stateStore.UpdateBackendSetHealthCheckPort(desiredPort, backendSetName)
+		} else {
+		// string(containerengine.ClusterPodNetworkOptionDetailsCniTypeFlannelOverlay)
+			desiredPort := util.GetTargetPortForBackendFlannel(c.serviceLister, ingress, backendSetName)
+			stateStore.UpdateBackendSetHealthCheckPort(desiredPort, backendSetName)
+		}
+	}
+	
 	healthCheckerExisting := bs.HealthChecker
 	if healthChecker != nil && !compareHealthCheckers(healthChecker, healthCheckerExisting) {
 		klog.Infof("Health checker for backend set %s needs update, new health checker %s", *bs.Name, util.PrettyPrint(healthChecker))

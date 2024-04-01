@@ -451,7 +451,8 @@ func (lbc *LoadBalancerClient) updateRoutingPolicyRules(ctx context.Context, lbI
 	return err
 }
 
-func (lbc *LoadBalancerClient) UpdateBackends(ctx context.Context, lbID string, backendSetName string, backends []loadbalancer.BackendDetails) error {
+func (lbc *LoadBalancerClient) UpdateBackends(ctx context.Context, lbID string, backendSetName string, backends []loadbalancer.BackendDetails, healthCheckPort int) error {
+	var healthCheckerDetails *loadbalancer.HealthCheckerDetails
 	lb, etag, err := lbc.GetLoadBalancer(ctx, lbID)
 	if err != nil {
 		return err
@@ -477,7 +478,24 @@ func (lbc *LoadBalancerClient) UpdateBackends(ctx context.Context, lbID string, 
 		return nil
 	}
 
-	return lbc.UpdateBackendSet(ctx, lb.Id, etag, backendSet, backends, nil, nil, nil)
+	healthChecker := backendSet.HealthChecker
+	healthCheckerDetails = &loadbalancer.HealthCheckerDetails{
+		Protocol:          healthChecker.Protocol,
+		UrlPath:           healthChecker.UrlPath,
+		Port:              healthChecker.Port,
+		ReturnCode:        healthChecker.ReturnCode,
+		Retries:           healthChecker.Retries,
+		TimeoutInMillis:   healthChecker.TimeoutInMillis,
+		IntervalInMillis:  healthChecker.IntervalInMillis,
+		ResponseBodyRegex: healthChecker.ResponseBodyRegex,
+		IsForcePlainText:  healthChecker.IsForcePlainText,
+	}
+	
+	if healthCheckPort != *healthCheckerDetails.Port {
+		healthCheckerDetails.Port = common.Int(healthCheckPort)
+	}
+
+	return lbc.UpdateBackendSet(ctx, lb.Id, etag, backendSet, backends, nil, healthCheckerDetails, nil)
 }
 
 func (lbc *LoadBalancerClient) UpdateBackendSet(ctx context.Context, lbID *string, etag string, backendSet loadbalancer.BackendSet,

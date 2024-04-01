@@ -82,6 +82,8 @@ const (
 	DefaultHealthCheckRetries              = 3
 	DefaultHealthCheckReturnCode           = 200
 	DefaultBackendSetRoutingPolicy         = "LEAST_CONNECTIONS"
+	DefaultHealthCheckTrafficPortTag       = "traffic-port"
+	UseTrafficPortAsDefaultHealthCheck     = true
 
 	CertificateCacheMaxAgeInMinutes = 10
 	LBCacheMaxAgeInMinutes          = 1
@@ -227,8 +229,21 @@ func GetIngressHealthCheckPort(i *networkingv1.Ingress) (int, error) {
 	if !ok {
 		return DefaultHealthCheckPort, nil
 	}
-
+	if strings.ToLower(strings.TrimSpace(value)) == DefaultHealthCheckTrafficPortTag {
+		return DefaultHealthCheckPort, nil
+	}
 	return strconv.Atoi(value)
+}
+
+func UseSvcTrafficPortForHealthCheck(i *networkingv1.Ingress) bool {
+	value, ok := i.Annotations[IngressHealthCheckPortAnnotation]
+	if !ok {
+		return false
+	}
+	if strings.ToLower(strings.TrimSpace(value)) == DefaultHealthCheckTrafficPortTag {
+		return true
+	}
+	return false
 }
 
 func GetIngressHealthCheckIntervalMilliseconds(i *networkingv1.Ingress) (int, error) {
@@ -513,6 +528,45 @@ func PathToServiceAndTargetPort(lister corelisters.ServiceLister, ingressNamespa
 	}
 
 	return pSvc.Name, svcPort, targetPort, svc, nil
+}
+
+func GetTargetPortForBackendNPN(lister corelisters.ServiceLister, ingress *networkingv1.Ingress, backendSetName string) int {
+	for _, rule := range ingress.Spec.Rules {
+		for _, path := range rule.HTTP.Paths {
+			svcName, svcPort, targetPort, _, err := PathToServiceAndTargetPort(lister, ingress.Namespace, path)
+			if err != nil {
+				return 0
+			}
+			currentBackendSetName := GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
+			if currentBackendSetName == backendSetName {
+				return int(targetPort)
+			}
+		}
+	}
+	return 0
+}
+
+func GetTargetPortForBackendFlannel(lister corelisters.ServiceLister, ingress *networkingv1.Ingress, backendSetName string) int {
+	for _, rule := range ingress.Spec.Rules {
+		for _, path := range rule.HTTP.Paths {
+			svcName, svcPort, _, svc, err := PathToServiceAndTargetPort(lister, ingress.Namespace, path)
+			if err != nil {
+				return 0
+			}
+			
+			if svc == nil || svc.Spec.Ports == nil || svc.Spec.Ports[0].NodePort == 0 {
+				continue
+			}
+
+			nodePort := svc.Spec.Ports[0].NodePort
+
+			currentBackendSetName := GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
+			if currentBackendSetName == backendSetName {
+				return int(nodePort)
+			}
+		}
+	}
+	return 0
 }
 
 func GetEndpoints(lister corelisters.EndpointsLister, namespace string, service string) ([]corev1.EndpointAddress, error) {

@@ -192,7 +192,13 @@ func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbI
 					}
 				}
 				backendSetName := util.GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
-				err = c.client.GetLbClient().UpdateBackends(context.TODO(), lbID, backendSetName, backends)
+				
+				healthCheckPort := util.DefaultHealthCheckPort
+				if util.UseSvcTrafficPortForHealthCheck(ingress) {
+					healthCheckPort = int(nodePort)
+				}
+				
+				err = c.client.GetLbClient().UpdateBackends(context.TODO(), lbID, backendSetName, backends, healthCheckPort)
 				if err != nil {
 					return fmt.Errorf("unable to update backends for %s/%s: %w", ingressClass.Name, backendSetName, err)
 				}
@@ -262,8 +268,8 @@ func (c *Controller) syncDefaultBackend(lbID string, ingresses []*networkingv1.I
 		klog.ErrorS(err, "Error processing default backend sync")
 		return nil
 	}
-
-	err = c.client.GetLbClient().UpdateBackends(context.TODO(), lbID, ingressclass.DefaultIngress, backends)
+	healthCheckPort := util.DefaultHealthCheckPort
+	err = c.client.GetLbClient().UpdateBackends(context.TODO(), lbID, ingressclass.DefaultIngress, backends, healthCheckPort)
 	if err != nil {
 		return err
 	}

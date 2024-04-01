@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"encoding/json"
 
+	"github.com/oracle/oci-go-sdk/v65/common"
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	"github.com/oracle/oci-native-ingress-controller/pkg/metric"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
@@ -359,6 +360,12 @@ func (s *StateStore) GetAllBackendSetForIngressClass() sets.String {
 
 func (s *StateStore) GetAllListenersForIngressClass() sets.Int32 {
 	return s.IngressGroupState.Listeners
+}
+
+func (s *StateStore) UpdateBackendSetHealthCheckPort(port int, bsName string) {
+	healthCheckerDetails := s.GetBackendSetHealthChecker(bsName)
+	healthCheckerDetails.Port = common.Int(port)
+    s.IngressGroupState.BackendSetHealthCheckerMap[bsName] = healthCheckerDetails
 }
 
 func validatePortInUse(listenerTLSConfig TlsConfig, secretName string, certificateId *string, servicePort int32) error {

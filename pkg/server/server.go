@@ -85,6 +85,7 @@ func SetUpControllers(opts types.IngressOpts, ingressClassInformer networkinginf
 		ingressController := ingress.NewController(
 			opts.ControllerClass,
 			opts.CompartmentId,
+			cni,
 			ingressClassInformer,
 			ingressInformer,
 			serviceInformer.Lister(),
