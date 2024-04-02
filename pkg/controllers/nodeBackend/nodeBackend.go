@@ -180,6 +180,11 @@ func (c *Controller) ensureBackends(ingressClass *networkingv1.IngressClass, lbI
 
 				var backends []ociloadbalancer.BackendDetails
 				nodePort := svc.Spec.Ports[0].NodePort
+				for _, entry := range(svc.Spec.Ports) {
+					if entry.Port == svcPort {
+						nodePort = entry.NodePort
+					}
+				}
 				trafficPolicy := svc.Spec.ExternalTrafficPolicy
 				if trafficPolicy == corev1.ServiceExternalTrafficPolicyTypeCluster {
 					for _, node := range nodes {

@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/oracle/oci-go-sdk/v65/common"
+	"github.com/oracle/oci-go-sdk/v65/containerengine"
+
 	ociloadbalancer "github.com/oracle/oci-go-sdk/v65/loadbalancer"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -530,44 +532,74 @@ func PathToServiceAndTargetPort(lister corelisters.ServiceLister, ingressNamespa
 	return pSvc.Name, svcPort, targetPort, svc, nil
 }
 
-func GetTargetPortForBackendNPN(lister corelisters.ServiceLister, ingress *networkingv1.Ingress, backendSetName string) int {
-	for _, rule := range ingress.Spec.Rules {
-		for _, path := range rule.HTTP.Paths {
-			svcName, svcPort, targetPort, _, err := PathToServiceAndTargetPort(lister, ingress.Namespace, path)
-			if err != nil {
-				return 0
+func GetTrafficPortForBackend(lister corelisters.ServiceLister, cniType string, ingress *networkingv1.Ingress, backendSetName string) int {
+	
+	if cniType == string(containerengine.ClusterPodNetworkOptionDetailsCniTypeOciVcnIpNative) {
+		for _, rule := range ingress.Spec.Rules {
+			for _, path := range rule.HTTP.Paths {
+				svcName, svcPort, targetPort, _, err := PathToServiceAndTargetPort(lister, ingress.Namespace, path)
+				if err != nil {
+					return 0
+				}
+				currentBackendSetName := GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
+				if currentBackendSetName == backendSetName {
+					return int(targetPort)
+				}
 			}
-			currentBackendSetName := GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
-			if currentBackendSetName == backendSetName {
-				return int(targetPort)
+		}
+	}
+	
+	if cniType == string(containerengine.ClusterPodNetworkOptionDetailsCniTypeFlannelOverlay) {
+		for _, rule := range ingress.Spec.Rules {
+			for _, path := range rule.HTTP.Paths {
+				svcName, svcPort, _, svc, err := PathToServiceAndTargetPort(lister, ingress.Namespace, path)
+				if err != nil {
+					return 0
+				}
+				
+				if svc == nil || svc.Spec.Ports == nil || svc.Spec.Ports[0].NodePort == 0 {
+					continue
+				}
+				
+				nodePort := svc.Spec.Ports[0].NodePort
+				for _, entry := range(svc.Spec.Ports) {
+					if entry.Port == svcPort {
+						nodePort = entry.NodePort
+					}
+				}
+
+				currentBackendSetName := GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
+				if currentBackendSetName == backendSetName {
+					return int(nodePort)
+				}
 			}
 		}
 	}
 	return 0
 }
 
-func GetTargetPortForBackendFlannel(lister corelisters.ServiceLister, ingress *networkingv1.Ingress, backendSetName string) int {
-	for _, rule := range ingress.Spec.Rules {
-		for _, path := range rule.HTTP.Paths {
-			svcName, svcPort, _, svc, err := PathToServiceAndTargetPort(lister, ingress.Namespace, path)
-			if err != nil {
-				return 0
-			}
+// func GetTargetPortForBackendFlannel(lister corelisters.ServiceLister, ingress *networkingv1.Ingress, backendSetName string) int {
+// 	for _, rule := range ingress.Spec.Rules {
+// 		for _, path := range rule.HTTP.Paths {
+// 			svcName, svcPort, _, svc, err := PathToServiceAndTargetPort(lister, ingress.Namespace, path)
+// 			if err != nil {
+// 				return 0
+// 			}
 			
-			if svc == nil || svc.Spec.Ports == nil || svc.Spec.Ports[0].NodePort == 0 {
-				continue
-			}
+// 			if svc == nil || svc.Spec.Ports == nil || svc.Spec.Ports[0].NodePort == 0 {
+// 				continue
+// 			}
 
-			nodePort := svc.Spec.Ports[0].NodePort
+// 			nodePort := svc.Spec.Ports[0].NodePort
 
-			currentBackendSetName := GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
-			if currentBackendSetName == backendSetName {
-				return int(nodePort)
-			}
-		}
-	}
-	return 0
-}
+// 			currentBackendSetName := GenerateBackendSetName(ingress.Namespace, svcName, svcPort)
+// 			if currentBackendSetName == backendSetName {
+// 				return int(nodePort)
+// 			}
+// 		}
+// 	}
+// 	return 0
+// }
 
 func GetEndpoints(lister corelisters.EndpointsLister, namespace string, service string) ([]corev1.EndpointAddress, error) {
 	endpoints, err := lister.Endpoints(namespace).Get(service)

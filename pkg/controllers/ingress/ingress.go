@@ -27,8 +27,6 @@ import (
 	"github.com/oracle/oci-native-ingress-controller/pkg/state"
 	"github.com/oracle/oci-native-ingress-controller/pkg/util"
 
-	"github.com/oracle/oci-go-sdk/v65/containerengine"
-
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -548,14 +546,8 @@ func syncBackendSet(ingress *networkingv1.Ingress, lbID string, backendSetName s
 	healthChecker := stateStore.GetBackendSetHealthChecker(*bs.Name)
 
 	if util.UseSvcTrafficPortForHealthCheck(ingress) {
-		if c.cniType == string(containerengine.ClusterPodNetworkOptionDetailsCniTypeOciVcnIpNative) {
-			desiredPort := util.GetTargetPortForBackendNPN(c.serviceLister, ingress, backendSetName)
-			stateStore.UpdateBackendSetHealthCheckPort(desiredPort, backendSetName)
-		} else {
-		// string(containerengine.ClusterPodNetworkOptionDetailsCniTypeFlannelOverlay)
-			desiredPort := util.GetTargetPortForBackendFlannel(c.serviceLister, ingress, backendSetName)
-			stateStore.UpdateBackendSetHealthCheckPort(desiredPort, backendSetName)
-		}
+		desiredPort := util.GetTrafficPortForBackend(c.serviceLister, c.cniType, ingress, backendSetName)
+		stateStore.UpdateBackendSetHealthCheckPort(desiredPort, backendSetName)
 	}
 	
 	healthCheckerExisting := bs.HealthChecker
